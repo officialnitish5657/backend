@@ -15,7 +15,11 @@ Base.metadata.create_all(bind=engine)
 # CORS setup (update later to your Render URL)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+         # for now allow all origins — you can restrict later
+        "https://pdf-books-1.onrender.com/",  # ✅ replace with your frontend Render URL
+        "http://localhost:5173",               # ✅ for local dev
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
