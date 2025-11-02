@@ -10,8 +10,10 @@ import fitz  # PyMuPDF
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
-UPLOAD_DIR = "app/uploads"
-PAGES_DIR = "app/static/pages"
+# Absolute folders (safe for Render)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "../uploads")
+PAGES_DIR = os.path.join(BASE_DIR, "../static/pages")
 
 
 # ✅ Upload Book
@@ -25,13 +27,16 @@ async def upload_book(
 ):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+    # Unique filename (timestamp)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{timestamp}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
 
+    # Save uploaded file
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Store DB record
     new_book = Book(
         title=title,
         description=description,
@@ -42,7 +47,17 @@ async def upload_book(
     db.commit()
     db.refresh(new_book)
 
-    return {"message": "Book uploaded successfully", "book": new_book}
+    # Return clean JSON (no ORM)
+    return {
+        "message": f"Book '{new_book.title}' uploaded successfully",
+        "book": {
+            "id": new_book.id,
+            "title": new_book.title,
+            "description": new_book.description,
+            "rating": new_book.rating,
+            "file_path": new_book.file_path,
+        }
+    }
 
 
 # ✅ Get all books
@@ -62,11 +77,9 @@ def get_books(db: Session = Depends(get_db)):
     ]
 
 
-# ✅ Read book pages as  images (for React viewer)
+# ✅ Generate book pages (lazy loaded)
 @router.get("/{book_id}/pages")
 def get_book_pages(book_id: int, start: int = 0, count: int = 5, db: Session = Depends(get_db)):
-    print(f"📖 Received request for book {book_id}, start={start}, count={count}")
-
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -76,25 +89,19 @@ def get_book_pages(book_id: int, start: int = 0, count: int = 5, db: Session = D
         raise HTTPException(status_code=404, detail="PDF file not found")
 
     os.makedirs(PAGES_DIR, exist_ok=True)
-    print("✅ PDF exists, opening with PyMuPDF...")
-
     doc = fitz.open(pdf_path)
-    print(f"📄 Total pages in doc: {doc.page_count}")
+    total_pages = doc.page_count
+    end = min(start + count, total_pages)
 
-    end = min(start + count, doc.page_count)
     image_urls = []
-
     for page_number in range(start, end):
-        print(f"🖼️ Rendering page {page_number + 1}")
         page = doc.load_page(page_number)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         image_path = os.path.join(PAGES_DIR, f"book{book_id}_page{page_number + 1}.png")
         pix.save(image_path)
         image_urls.append(f"/static/pages/book{book_id}_page{page_number + 1}.png")
 
-    total_pages = doc.page_count
     doc.close()
-    print("✅ Done generating images")
 
     return JSONResponse({
         "book_id": book_id,
@@ -104,7 +111,8 @@ def get_book_pages(book_id: int, start: int = 0, count: int = 5, db: Session = D
         "pages": image_urls
     })
 
-# ✅ Optional: Serve full PDF if needed
+
+# ✅ Download full PDF
 @router.get("/{book_id}/file")
 def get_book_pdf(book_id: int, db: Session = Depends(get_db)):
     book = db.query(Book).filter(Book.id == book_id).first()
