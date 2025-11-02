@@ -10,7 +10,6 @@ import fitz  # PyMuPDF
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
-# Absolute folders (safe for Render)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "../uploads")
 PAGES_DIR = os.path.join(BASE_DIR, "../static/pages")
@@ -26,28 +25,18 @@ async def upload_book(
     db: Session = Depends(get_db)
 ):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-    # Unique filename (timestamp)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{timestamp}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
 
-    # Save uploaded file
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Store DB record
-    new_book = Book(
-        title=title,
-        description=description,
-        rating=rating,
-        file_path=file_path
-    )
+    new_book = Book(title=title, description=description, rating=rating, file_path=file_path)
     db.add(new_book)
     db.commit()
     db.refresh(new_book)
 
-    # Return clean JSON (no ORM)
     return {
         "message": f"Book '{new_book.title}' uploaded successfully",
         "book": {
@@ -56,7 +45,7 @@ async def upload_book(
             "description": new_book.description,
             "rating": new_book.rating,
             "file_path": new_book.file_path,
-        }
+        },
     }
 
 
@@ -71,10 +60,27 @@ def get_books(db: Session = Depends(get_db)):
             "description": b.description,
             "rating": b.rating,
             "file_path": b.file_path,
-            "created_at": b.created_at.strftime("%Y-%m-%d %H:%M:%S") if hasattr(b, "created_at") else None
+            "created_at": b.created_at.strftime("%Y-%m-%d %H:%M:%S") if hasattr(b, "created_at") else None,
         }
         for b in books
     ]
+
+
+# ✅ Get single book details
+@router.get("/{book_id}")
+def get_book(book_id: int, db: Session = Depends(get_db)):
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    return {
+        "id": book.id,
+        "title": book.title,
+        "description": book.description,
+        "rating": book.rating,
+        "file_path": book.file_path,
+        "created_at": book.created_at.strftime("%Y-%m-%d %H:%M:%S") if hasattr(book, "created_at") else None,
+    }
 
 
 # ✅ Generate book pages (lazy loaded)
@@ -108,7 +114,7 @@ def get_book_pages(book_id: int, start: int = 0, count: int = 5, db: Session = D
         "start": start,
         "count": len(image_urls),
         "total_pages": total_pages,
-        "pages": image_urls
+        "pages": image_urls,
     })
 
 
