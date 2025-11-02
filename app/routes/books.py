@@ -76,7 +76,7 @@ def get_books(db: Session = Depends(get_db)):
         for b in books
     ]
 
-@router.get("/")
+@router.get("/{book_id}/")
 def get_books(db: Session = Depends(get_db)):
     books = db.query(Book).all()
     return [
